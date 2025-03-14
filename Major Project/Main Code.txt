@@ -1,1 +1,117 @@
+#define BLYNK_TEMPLATE_ID "TMPL36RUoMQ_x"
+#define BLYNK_TEMPLATE_NAME "Quickstart Template"
+#define BLYNK_AUTH_TOKEN "vACfb97GFimESzOjSlZoNgXDfDjz184d"
 
+/* Comment this out to disable prints and save space */
+#define BLYNK_PRINT Serial
+
+#include "EmonLib.h"   //https://github.com/openenergymonitor/EmonLib
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+
+EnergyMonitor emon;
+#define vCalibration 106.8
+#define currCalibration 0.52
+BlynkTimer timer;
+
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "Iot";
+char pass[] = "12345678";
+
+float kWh = 0;
+unsigned long lastmillis = millis();
+#include <HardwareSerial.h>
+
+HardwareSerial SerialSIM800L(2); // Define Serial port for SIM800L module on ESP32 (UART2)
+
+#define SIM800L_RX 16
+#define SIM800L_TX 17
+#define SIM800L_RST 5
+
+void myTimerEvent() {
+  emon.calcVI(20, 2000);
+  Serial.print("Vrms: ");
+  Serial.print(emon.Vrms, 2);
+  Serial.print("V");
+  Blynk.virtualWrite(V4, emon.Vrms);
+  Serial.print("\tIrms: ");
+  Serial.print(emon.Irms, 4);
+  Serial.print("A");
+  Blynk.virtualWrite(V5, emon.Irms);
+  Serial.print("\tPower: ");
+  Serial.print(emon.apparentPower, 4);
+  Serial.print("W");
+  Blynk.virtualWrite(V2, emon.apparentPower);
+  Serial.print("\tkWh: ");
+  kWh = kWh + emon.apparentPower * (millis() - lastmillis) / 3600000000.0;
+  Serial.print(kWh, 4);
+  Serial.println("kWh");
+  lastmillis = millis();
+  Blynk.virtualWrite(V3, kWh);
+  if (kWh >= 0.002) {
+    sendSMS("+919361452836", "Your Electricity Usage is exceeding more than 100-Units");
+    delay(2000);
+  }
+}
+
+void setup()
+{
+  // Debug console
+  Serial.begin(115200);
+  emon.voltage(34, vCalibration, 1.7); // Voltage: input pin, calibration, phase_shift
+  emon.current(35, currCalibration); // Current: input pin, calibration.
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  // You can also specify server:
+  //Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass, "blynk.cloud", 80);
+  //Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass, IPAddress(192,168,1,100), 8080);
+  timer.setInterval(5000L, myTimerEvent);
+
+  SerialSIM800L.begin(9600, SERIAL_8N1, SIM800L_RX, SIM800L_TX); // Initialize Serial port for SIM800L module
+
+  pinMode(SIM800L_RST, OUTPUT);
+  digitalWrite(SIM800L_RST, HIGH); // Keep SIM800L module reset pin high
+  delay(1000);
+  digitalWrite(SIM800L_RST, LOW); // Release reset pin after delay
+  delay(1000);
+  digitalWrite(SIM800L_RST, HIGH); // Keep reset pin high
+
+  // Wait for SIM800L module to initialize
+  delay(3000);
+
+  // Test SIM800L module by sending AT command
+  SerialSIM800L.println("AT");
+  delay(1000);
+  while (SerialSIM800L.available()) {
+    Serial.write(SerialSIM800L.read());
+  }
+
+}
+void sendSMS(const char* phoneNumber, const char* message) {
+  SerialSIM800L.print("AT+CMGF=1\r"); // Set SMS mode to text
+  delay(1000);
+
+  SerialSIM800L.print("AT+CMGS=\""); // Set phone number
+  SerialSIM800L.print(phoneNumber);
+  SerialSIM800L.println("\"");
+  delay(1000);
+
+  SerialSIM800L.print(message); // Send message
+  delay(100);
+  SerialSIM800L.write(0x1A); // End AT command with Ctrl+Z
+  delay(1000);
+}
+
+
+void loop()
+{
+  Blynk.run();
+  timer.run();
+  //sendSMS("+918248963983", "Your Electricity Usage is exceeding more than 100Units");
+
+
+  // You can inject your own code or combine it with other sketches.
+  // Check other examples on how to communicate with Blynk. Remember
+  // to avoid delay() function!
+}
